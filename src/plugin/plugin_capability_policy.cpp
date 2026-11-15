@@ -61,7 +61,8 @@ constexpr std::array<std::string_view, 47> kKnownCapabilities{
     "websocket",
 };
 
-constexpr std::array<ServiceCapabilityMapping, 47> kServiceCapabilities{{
+constexpr std::array<ServiceCapabilityMapping, 49> kServiceCapabilities{{
+    {"anomaly.game-cleanup", "game-events"},
     {"anomaly.mods", "mods"},
     {"anomaly.plugin-state", "configuration"},
     {"anomaly.config", "configuration"},
@@ -79,6 +80,7 @@ constexpr std::array<ServiceCapabilityMapping, 47> kServiceCapabilities{{
     {"anomaly.ui", "ui"},
     {"anomaly.localization", "ui"},
     {"anomaly.window", "ui-window"},
+    {"anomaly.window-presentation", "ui-window"},
     {"anomaly.font", "ui-font"},
     {"anomaly.texture", "ui-texture"},
     {"anomaly.input", "input"},

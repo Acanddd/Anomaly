@@ -1,3 +1,5 @@
+> **Unofficial Ride Together Core branch:** paired with Ride Together Full 1.1, based on official Anomaly v3.0.0. See [branch notes, build instructions and DLL hash](docs/ride-together/README.md).
+
 <div align="center">
 
 <img src="logo.png" alt="Anomaly" width="256" height="256" />

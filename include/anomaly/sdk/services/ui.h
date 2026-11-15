@@ -85,7 +85,8 @@ typedef enum AnomalyUiTextInputFlagsV1 {
 typedef enum AnomalyUiTableFlagsV1 {
     ANOMALY_UI_TABLE_V1_NONE = 0,
     ANOMALY_UI_TABLE_V1_SIZING_FIXED_FIT = 1u << 0u,
-    ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP = 1u << 1u
+    ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP = 1u << 1u,
+    ANOMALY_UI_TABLE_V1_SIZING_STRETCH_SAME = 1u << 2u
 } AnomalyUiTableFlagsV1;
 
 // Child flags retain the native flag values accepted by begin_child.
@@ -287,6 +288,23 @@ typedef struct AnomalyUiServiceV1 {
     int (ANOMALY_CALL *draw_screen_primitives)(
         void* user, const AnomalyUiScreenPrimitiveV1* primitives,
         size_t count);
+
+    // Optional local append-only panel API. Render only, scope-unwound by host.
+    // Colors: WindowBg, ChildBg, Text, TextDisabled, Button, ButtonHovered,
+    // ButtonActive, FrameBg, FrameBgHovered, SliderGrab, SliderGrabActive,
+    // Header, HeaderHovered, PopupBg. 14 consecutive RGBA float vectors.
+    int (ANOMALY_CALL *begin_panel_style)(void* user, float scale, const float* colors);
+    void (ANOMALY_CALL *end_panel_style)(void* user);
+    int (ANOMALY_CALL *begin_combo)(void* user, AnomalyStringViewV1 id, AnomalyStringViewV1 preview, int enabled);
+    void (ANOMALY_CALL *end_combo)(void* user);
+    int (ANOMALY_CALL *selectable)(void* user, AnomalyStringViewV1 label, int selected, float height, int enabled);
+    void (ANOMALY_CALL *content_size)(void* user, float* width, float* height);
+    void (ANOMALY_CALL *set_cursor_y)(void* user, float y);
+    void (ANOMALY_CALL *font_scale)(void* user, float scale);
+    void (ANOMALY_CALL *center_panel)(void* user, float width, float height);
+    void (ANOMALY_CALL *dummy)(void* user, float width, float height);
+    void (ANOMALY_CALL *muted_text)(void* user, AnomalyStringViewV1 text);
+    int (ANOMALY_CALL *checkbox_enabled)(void* user, AnomalyStringViewV1 label, int* value, int enabled);
 } AnomalyUiServiceV1;
 
 #ifdef __cplusplus

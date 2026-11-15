@@ -123,6 +123,11 @@ typedef struct AnomalyUe5ObjectsServiceV1 {
     AnomalyStatusV1 (ANOMALY_CALL *snapshot_at)(void* user, uint32_t index, AnomalyUe5ObjectSnapshotV1* snapshot);
     AnomalyStatusV1 (ANOMALY_CALL *snapshot_by_handle)(void* user, AnomalyGenerationHandleV1 handle, AnomalyUe5ObjectSnapshotV1* snapshot);
     AnomalyStatusV1 (ANOMALY_CALL *find_exact)(void* user, AnomalyStringViewV1 path, AnomalyGenerationHandleV1* handle);
+    // Optional appended extension: Game-thread-only, generation+serial checked.
+    // Address is borrowed for this synchronous Game callback only. NOT_FOUND
+    // positively invalidates the handle; unreadable memory returns FAILED.
+    AnomalyStatusV1 (ANOMALY_CALL *resolve_address)(
+        void* user, AnomalyGenerationHandleV1 handle, uintptr_t* address);
 } AnomalyUe5ObjectsServiceV1;
 typedef struct AnomalyUe5WorldSnapshotV1 {
     uint32_t struct_size; uint32_t reserved; AnomalyGenerationHandleV1 handle; uint64_t change_sequence; uint32_t name_id; uint32_t flags;

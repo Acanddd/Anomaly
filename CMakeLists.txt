@@ -1060,12 +1060,13 @@ set_target_properties(anomaly_core PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/Anomaly")
 target_include_directories(anomaly_core PRIVATE include src "${GENERATED_DIR}")
 target_compile_definitions(anomaly_core PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_compile_options(anomaly_core PRIVATE /W4 /permissive- /EHsc)
+target_compile_options(anomaly_core PRIVATE /utf-8 /W4 /permissive- /EHsc)
 
 # The Core is manually mapped and cannot use MSVC's loader-managed TLS slot for
 # function-local static guards. These targets initialize their process-scoped
 # local statics on the lifecycle thread before publishing concurrent services.
 set(ANOMALY_MANUAL_MAP_TLS_FREE_TARGETS
+    anomaly_ui_resources
     anomaly_telemetry
     anomaly_blake3
     anomaly_pak_mod_catalog

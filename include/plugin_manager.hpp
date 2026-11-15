@@ -191,6 +191,12 @@ public:
     bool StopForRuntime(std::chrono::milliseconds timeout = std::chrono::milliseconds(1000));
     void SetQueuedCallbackCanceller(
         std::function<void(std::string_view, std::uint64_t)> canceller);
+    // Composition root only: callback must run on the verified Game dispatcher,
+    // independently of ordinary plugin owner/generation cancellation.
+    void SetGameCleanupDispatcher(std::function<bool(std::function<void()>)> post) {
+        game_cleanup_dispatcher_ = std::move(post);
+    }
+    bool HasGameCleanupDispatcher() const noexcept { return !!game_cleanup_dispatcher_; }
     void SetCallbackEvidenceObserver(
         std::function<void(const PluginCallbackEvidence&)> observer);
     // Set before LoadAll. Coalesces successful starts and active plugins (including
@@ -301,6 +307,7 @@ public:
         AnomalyGenerationHandleV1 handle) noexcept;
     [[nodiscard]] std::vector<anomaly::NteEscMenuButtonSnapshot>
         NteEscMenuButtons() const;
+    [[nodiscard]] std::uint64_t NteEscMenuButtonsRevision() const noexcept;
 
 private:
     struct LoadedPlugin;
@@ -391,6 +398,7 @@ private:
     mutable std::mutex ui_resource_backend_mutex_;
     std::shared_ptr<anomaly::UiResourceRenderBackend> ui_resource_render_backend_;
     std::function<void(std::string_view, std::uint64_t)> queued_callback_canceller_;
+    std::function<bool(std::function<void()>)> game_cleanup_dispatcher_;
     std::function<void(const PluginCallbackEvidence&)> callback_evidence_observer_;
     std::function<void(std::vector<PluginUsageObservation>)> usage_observer_;
     std::unordered_map<std::string, std::chrono::system_clock::time_point> pending_usage_;

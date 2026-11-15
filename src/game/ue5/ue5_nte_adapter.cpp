@@ -9698,6 +9698,32 @@ struct Ue5NteAdapter::State {
         return ObjectSnapshotLocked(state, index, &serial, snapshot);
     }
 
+    static AnomalyStatusV1 ANOMALY_CALL ResolveObjectAddress(
+        void* user, AnomalyGenerationHandleV1 handle, uintptr_t* address) noexcept {
+        if (address == nullptr) return Status(ANOMALY_STATUS_V1_INVALID_ARGUMENT);
+        *address = 0;
+        auto& state = *static_cast<State*>(user);
+        if (state.game_thread_id.load(std::memory_order_acquire) != GetCurrentThreadId())
+            return Status(ANOMALY_STATUS_V1_CONFLICT, "object address requires Game thread");
+        std::scoped_lock lock(state.mutex);
+        if (!state.ServiceAvailableForPublication(ANOMALY_UE5_OBJECTS_SERVICE_V1_ID) ||
+            state.object_registry.items == 0) return Status(ANOMALY_STATUS_V1_UNAVAILABLE);
+        if (handle.generation != state.object_generation) return Status(ANOMALY_STATUS_V1_NOT_FOUND);
+        const uint32_t encoded = static_cast<uint32_t>(handle.id);
+        if (!encoded) return Status(ANOMALY_STATUS_V1_INVALID_ARGUMENT);
+        const uint32_t index = encoded - 1U;
+        if (index >= state.object_registry.count) state.RefreshObjects();
+        if (handle.generation != state.object_generation) return Status(ANOMALY_STATUS_V1_NOT_FOUND);
+        if (index >= state.object_registry.count) return Status(ANOMALY_STATUS_V1_NOT_FOUND);
+        uintptr_t object{}; uint32_t serial{};
+        if (!ReadObjectSlot(*state.memory,state.object_registry,index,object,serial))
+            return Status(ANOMALY_STATUS_V1_FAILED, "object slot unreadable");
+        if (!object || serial != static_cast<uint32_t>(handle.id >> 32U))
+            return Status(ANOMALY_STATUS_V1_NOT_FOUND);
+        *address = object;
+        return Status(ANOMALY_STATUS_V1_OK);
+    }
+
     static AnomalyStatusV1 ANOMALY_CALL FindExactObject(
         void* user,
         const AnomalyStringViewV1 path,
@@ -13100,7 +13126,7 @@ struct Ue5NteAdapter::State::SemanticServiceEndpoint final {
         objects_service = {
             sizeof(AnomalyUe5ObjectsServiceV1), ANOMALY_UE5_OBJECTS_SERVICE_V1_VERSION,
             this, ObjectGenerationThunk, ObjectCountThunk, ObjectSnapshotThunk,
-            ObjectSnapshotByHandleThunk, FindExactObjectThunk};
+            ObjectSnapshotByHandleThunk, FindExactObjectThunk, ResolveObjectAddressThunk};
         assets_service = {
             sizeof(AnomalyUe5AssetsServiceV1), ANOMALY_UE5_ASSETS_SERVICE_V1_VERSION,
             this, PrepareAssetClassThunk, EnumerateAssetClassesThunk,
@@ -13299,6 +13325,13 @@ private:
         void* user, AnomalyGenerationHandleV1 handle, AnomalyUe5ObjectSnapshotV1* snapshot) noexcept {
         auto lease = static_cast<SemanticServiceEndpoint*>(user)->Acquire();
         return lease ? State::ObjectSnapshotByHandle(lease.User(), handle, snapshot) : StoppedStatus();
+    }
+
+    static AnomalyStatusV1 ANOMALY_CALL ResolveObjectAddressThunk(
+        void* user, AnomalyGenerationHandleV1 handle, uintptr_t* address) noexcept {
+        if (address != nullptr) *address = 0;
+        auto lease = static_cast<SemanticServiceEndpoint*>(user)->Acquire();
+        return lease ? State::ResolveObjectAddress(lease.User(),handle,address) : StoppedStatus();
     }
 
     static AnomalyStatusV1 ANOMALY_CALL FindExactObjectThunk(

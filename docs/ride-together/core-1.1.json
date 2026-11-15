@@ -1,0 +1,21 @@
+{
+  "release": "Ride Together Full 1.1",
+  "tag": "ridetogether-core-1.1",
+  "upstream": "https://github.com/AnomalyNTE/Anomaly",
+  "upstream_tag": "v3.0.0",
+  "upstream_commit": "bdc6fa1267ddf03be4e3423d3b3fe04a4725d478",
+  "published_core_sha256": "b80b215f3b5ad10c8c19cec708f44096e7dc37876fda2cb08ecd9b8d11c8da6e",
+  "published_core_bytes": 8418304,
+  "published_source_archive": "RideTogether-Full-1.1-Source.zip",
+  "published_source_archive_sha256": "447de057ce1af6707c71d55d5dde660afe9ed6627fbd4be87ca6e44a4ed87115",
+  "verified_host_source_files": 971,
+  "lf_normalized_host_snapshot_sha256": "62a4808e67a5d8d2d931df2689ea2c9ca365d2b4ba0a4eda1406ccabea22cac0",
+  "snapshot_digest_format": "SHA256 of sorted UTF-8 path + NUL + SHA256(LF-normalized file bytes) + LF, over Anomaly-host entries before fork documentation additions",
+  "binary_reproducibility": "Source correspondence verified; fresh builds are not claimed byte-identical because paths, linker timestamps, debug identifiers and generated Git provenance can differ.",
+  "verification": {
+    "original_anomaly_core_target": "passed; artifact SHA256 remains the published SHA256",
+    "original_build_target": "anomaly_core",
+    "configuration": "RelWithDebInfo",
+    "fresh_build_byte_identity_claimed": false
+  }
+}

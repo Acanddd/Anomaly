@@ -1121,6 +1121,10 @@ void RunEmbeddedPlatform(
                 details.event_id = "nte.esc-menu-bridge";
                 static_cast<void>(bridge_logger->Log(
                     mapped, "nte.esc-menu", std::move(message), std::move(details)));
+            },
+            [weak = std::weak_ptr<PluginManager>(plugin_owner)] {
+                const auto plugins = weak.lock();
+                return plugins ? plugins->NteEscMenuButtonsRevision() : std::uint64_t{};
             });
         esc_menu_bridge_started = esc_menu_bridge->Start();
         if (!esc_menu_bridge_started) {

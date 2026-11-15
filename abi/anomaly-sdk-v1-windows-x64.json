@@ -8,10 +8,10 @@
     "size_t_size": 8
   },
   "constants": {
-    "ANOMALY_SDK_VERSION_MAJOR": 1,
+    "ANOMALY_SDK_VERSION_MAJOR": 3,
     "ANOMALY_SDK_VERSION_MINOR": 0,
     "ANOMALY_SDK_VERSION_PATCH": 0,
-    "ANOMALY_SDK_VERSION_STRING": "1.0.0",
+    "ANOMALY_SDK_VERSION_STRING": "3.0.0",
     "ANOMALY_PLUGIN_API_V1_MAJOR": 1,
     "ANOMALY_PLUGIN_API_V1_MINOR": 0,
     "ANOMALY_PLUGIN_V1_ENTRY_NAME": "AnomalyPluginEntryV1",
@@ -361,7 +361,8 @@
       "values": {
         "ANOMALY_UI_TABLE_V1_NONE": 0,
         "ANOMALY_UI_TABLE_V1_SIZING_FIXED_FIT": 1,
-        "ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP": 2
+        "ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP": 2,
+        "ANOMALY_UI_TABLE_V1_SIZING_STRETCH_SAME": 4
       }
     },
     "AnomalyUiChildFlagsV1": {
@@ -422,7 +423,8 @@
       "values": {
         "ANOMALY_WINDOW_V1_NONE": 0,
         "ANOMALY_WINDOW_V1_NO_SAVED_SETTINGS": 1,
-        "ANOMALY_WINDOW_V1_NO_COLLAPSE": 2
+        "ANOMALY_WINDOW_V1_NO_COLLAPSE": 2,
+        "ANOMALY_WINDOW_V1_CUSTOM_CHROME": 4
       }
     },
     "AnomalyGlyphRangeV1": {
@@ -640,7 +642,7 @@
       }
     },
     "AnomalyCoreServiceV1": {
-      "size": 48,
+      "size": 56,
       "alignment": 8,
       "offsets": {
         "struct_size": 0,
@@ -1055,7 +1057,7 @@
       }
     },
     "AnomalyUiServiceV1": {
-      "size": 448,
+      "size": 544,
       "alignment": 8,
       "offsets": {
         "struct_size": 0,
@@ -1114,7 +1116,19 @@
         "overlay_measure_text": 416,
         "overlay_text": 424,
         "overlay_glass_ring_sector": 432,
-        "draw_screen_primitives": 440
+        "draw_screen_primitives": 440,
+        "begin_panel_style": 448,
+        "end_panel_style": 456,
+        "begin_combo": 464,
+        "end_combo": 472,
+        "selectable": 480,
+        "content_size": 488,
+        "set_cursor_y": 496,
+        "font_scale": 504,
+        "center_panel": 512,
+        "dummy": 520,
+        "muted_text": 528,
+        "checkbox_enabled": 536
       }
     },
     "AnomalyWindowSpecV1": {
@@ -1424,7 +1438,7 @@
       }
     },
     "AnomalyUe5ObjectsServiceV1": {
-      "size": 56,
+      "size": 64,
       "alignment": 8,
       "offsets": {
         "struct_size": 0,

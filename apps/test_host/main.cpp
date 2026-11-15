@@ -702,6 +702,7 @@ int wmain(int argc, wchar_t** argv) {
         for (const auto& plugin : manager.Plugins()) {
             if (plugin.state == "disabled" && !manager.SetEnabled(plugin.id, true)) {
                 std::cerr << "plugin activation failed: " << plugin.id << '\n';
+                for (const auto& event : manager.Events()) std::cerr << event << '\n';
                 result = 4;
             }
         }

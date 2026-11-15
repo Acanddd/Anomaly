@@ -1,3 +1,5 @@
+> **载具同乘配套核心（非官方分支）**：本分支对应 Ride Together Full 1.1，基于官方 Anomaly v3.0.0。改动、构建方法和 DLL 校验值见 [分支说明](docs/ride-together/README.md)。
+
 <div align="center">
 
 <img src="./logo.png" alt="Anomaly" width="256" height="256" />

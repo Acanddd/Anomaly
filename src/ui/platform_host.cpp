@@ -9380,6 +9380,7 @@ void RunPlatform(
             if (!anomaly::HostUiPluginDrawSuppressed()) {
                 plugins.Draw(ImGui::GetCurrentContext());
             }
+            anomaly::FinishHostUiFrame();
         }
         ImGui::Render();
         UpdateHostWindowRegion(host);

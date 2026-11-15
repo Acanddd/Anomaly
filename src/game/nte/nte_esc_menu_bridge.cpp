@@ -1,4 +1,5 @@
 #include "anomaly/nte_esc_menu_bridge.hpp"
+#include "anomaly/nte_esc_menu_reconcile.hpp"
 
 #include "anomaly/adapter_service_registry.hpp"
 #include "anomaly/hook_manager.hpp"
@@ -113,6 +114,7 @@ struct WidgetBinding final {
     AnomalyGenerationHandleV1 handle{};
     std::uintptr_t widget{};
     std::int32_t child_index{-1};
+    bool diagnostic_pending{};
 };
 
 struct IconImportFailure final {
@@ -135,6 +137,8 @@ struct Context final {
     const AnomalyUe5NamesServiceV1* names{};
     const AnomalyUe5ObjectsServiceV1* objects{};
     NteEscMenuBridge::SnapshotProvider snapshot_provider;
+    NteEscMenuBridge::RevisionProvider revision_provider;
+    NteEscMenuRevisionGate registry_revision;
     NteEscMenuBridge::InvokeButton invoke_button;
     NteEscMenuBridge::Logger logger;
     std::unique_ptr<HookManager> hooks;
@@ -1029,7 +1033,7 @@ bool AppendButton(
     if (GetChildrenCount(container) != before + 1) {
         return fail(9U, "NTE ESC append failed: child count did not increase");
     }
-    *binding = {desired.handle, widget, before};
+    *binding = {desired.handle, widget, before, true};
     context.append_failure_stage = 0U;
     Log(context, ANOMALY_CORE_LOG_LEVEL_V1_INFO,
         "NTE ESC menu button appended at index " + std::to_string(before) +
@@ -1316,23 +1320,19 @@ void ReconcileButtons(Context& context) noexcept {
         Log(context, ANOMALY_CORE_LOG_LEVEL_V1_INFO,
             "NTE ESC bridge observed a rebuilt menu page; waiting for stability");
     }
-    for (auto binding = context.bindings.begin(); binding != context.bindings.end();) {
-        const bool retained = std::any_of(desired.begin(), desired.end(), [&](const auto& entry) {
-            return SameHandle(entry.handle, binding->handle);
-        });
-        if (retained) {
-            ++binding;
-        } else {
-            const std::int32_t removed_index = binding->child_index;
-            if (GetChildAt(context.menu_container, removed_index) == binding->widget &&
-                RemoveChildAt(context.menu_container, removed_index)) {
-                --children;
-                for (auto& entry : context.bindings) {
-                    if (entry.child_index > removed_index) --entry.child_index;
-                }
-            }
-            binding = context.bindings.erase(binding);
-        }
+    const bool removed = RemoveRetiredEscMenuBindings(context.bindings, children,
+        [&](const auto handle) {
+            return std::any_of(desired.begin(), desired.end(), [&](const auto& entry) {
+                return SameHandle(entry.handle, handle);
+            });
+        },
+        [&](const auto index) { return GetChildAt(context.menu_container, index); },
+        [&](const auto index) { return RemoveChildAt(context.menu_container, index); });
+    if (!removed) {
+        context.reconciliation_complete = false;
+        context.append_failure_stage = 12U;
+        report_stage(8U, "NTE ESC bridge waiting: retired button removal failed; keeping binding for retry");
+        return;
     }
     if (!context.container_stable) {
         if (context.observed_child_count == children) {
@@ -1375,6 +1375,7 @@ void ReconcileButtons(Context& context) noexcept {
                     return SameHandle(entry.handle, binding.handle);
                 });
         });
+    if (!append_failed) context.append_failure_stage = 0U;
     if (context.reconciliation_complete) context.menu_rebuild_active = false;
 }
 
@@ -1536,16 +1537,65 @@ void ObserveMenuRebuild(Context& context) noexcept {
             " new_batch=" + (new_event_batch ? "true" : "false"));
 }
 
+void LogPendingButtonDiagnostics(Context& context) noexcept {
+    if (!context.container_stable || context.menu_rebuild_active || context.menu_container == 0U) return;
+    std::scoped_lock lock(context.bridge_mutex);
+    if (std::none_of(context.bindings.begin(), context.bindings.end(),
+        [](const auto& binding) { return binding.diagnostic_pending; })) return;
+    const auto children = GetChildrenCount(context.menu_container);
+    const auto describe = [&](std::string_view role, std::uintptr_t widget, int32_t index, bool attached) {
+        std::string name, class_name;
+        if (!attached || !ResolveObjectName(context, widget, &name)) name = "unavailable";
+        if (!attached || !ResolveClassName(context, widget, &class_name)) class_name = "unavailable";
+        Log(context, ANOMALY_CORE_LOG_LEVEL_V1_INFO,
+            "NTE ESC layout diagnostic role=" + std::string(role) +
+            " page=" + std::to_string(context.menu_page_index) +
+            " child_index=" + std::to_string(index) + " children=" + std::to_string(children) +
+            " attached=" + (attached ? "true" : "false") + " name=" + name + " class=" + class_name +
+            " visibility=unsupported opacity=unsupported desired_size=unsupported slot=unsupported"
+            " reason=property-type-size-and-parameter-contract-unavailable");
+    };
+    bool logged_native{};
+    for (auto& binding : context.bindings) {
+        if (!binding.diagnostic_pending) continue;
+        binding.diagnostic_pending = false;
+        const bool attached = binding.child_index >= 0 && binding.child_index < children &&
+            GetChildAt(context.menu_container, binding.child_index) == binding.widget;
+        describe("new", binding.widget, binding.child_index, attached);
+        if (!logged_native && children > 0) {
+            for (int32_t index = 0; index < (std::min)(children, int32_t{32}); ++index) {
+                const auto child = GetChildAt(context.menu_container, index);
+                const bool owned = std::any_of(context.bindings.begin(), context.bindings.end(),
+                    [&](const auto& item) { return item.widget == child; });
+                if (child != 0U && !owned) {
+                    describe("native", child, index, true);
+                    logged_native = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
 void Update(Context& context) noexcept {
     if (context.stopping.load(std::memory_order_acquire)) return;
     DrainClicks(context);
     if (!NamesReady(context.names) || !ObjectsReady(context.objects)) RefreshServices(context);
     ObserveMenuRebuild(context);
     ScanObjects(context);
-    // Nothing polls on a clock: a reconcile runs only when something asked for one -- an observed menu rebuild, a
-    // page change, a click, or a previous pass that did not finish. A menu standing still costs nothing.
+    // Reconcile appends later in Update, so this sees new bindings on the next
+    // stable tick only. No unvalidated getter or extra global scan is performed.
+    LogPendingButtonDiagnostics(context);
+    // A registry revision is cheap: unchanged frames never copy labels or PNGs.
+    // Sample before snapshot construction, so a concurrent mutation cannot be
+    // accidentally acknowledged without being observed.
+    std::uint64_t registry_revision{};
+    try { if (context.revision_provider) registry_revision = context.revision_provider(); }
+    catch (...) { return; }
+    const bool registry_changed = context.registry_revision.Changed(registry_revision);
+    if (registry_changed) context.reconciliation_complete = false;
     const bool page_changed = context.menu_page_index != context.reconciled_menu_page_index;
-    const bool wanted = context.menu_rebuild_active || page_changed ||
+    const bool wanted = registry_changed || context.menu_rebuild_active || page_changed ||
         context.reconcile_requested ||
         (!context.reconciliation_complete && !context.menu_candidates.empty());
     if (!wanted) return;
@@ -1553,7 +1603,8 @@ void Update(Context& context) noexcept {
     const auto now = std::chrono::steady_clock::now();
     if (context.append_failure_stage != 0U && now < context.next_registry_poll) return;
     context.reconcile_requested = false;
-    ReconcileButtons(context);
+    context.registry_revision.Run(registry_revision, context.reconciliation_complete,
+        [&] { ReconcileButtons(context); });
     context.reconciled_menu_page_index = context.menu_page_index;
     context.next_registry_poll = context.append_failure_stage == 0U
         ? std::chrono::steady_clock::time_point{}
@@ -1600,6 +1651,7 @@ void Reset(Context& context) noexcept {
     context.reconciliation_complete = false;
     context.reconcile_requested = false;
     context.reconciled_menu_page_index = -1;
+    context.registry_revision = {};
     context.next_registry_poll = {};
     context.reconcile_stage = kMissingPropertyOffset;
     context.append_failure_stage = 0U;
@@ -1623,9 +1675,11 @@ public:
         ProfileResolutionSnapshot resolution,
         SnapshotProvider snapshot_provider,
         InvokeButton invoke_button,
-        Logger logger) {
+        Logger logger,
+        RevisionProvider revision_provider) {
         context_.memory_services = NormalizeCoreMemoryServices(std::move(memory_services));
         context_.snapshot_provider = std::move(snapshot_provider);
+        context_.revision_provider = std::move(revision_provider);
         context_.invoke_button = std::move(invoke_button);
         context_.logger = std::move(logger);
         const auto* process_event = resolution.FindSymbol("ue5.ProcessEvent");
@@ -1743,10 +1797,12 @@ NteEscMenuBridge::NteEscMenuBridge(
     ProfileResolutionSnapshot resolution,
     SnapshotProvider snapshot_provider,
     InvokeButton invoke_button,
-    Logger logger)
+    Logger logger,
+    RevisionProvider revision_provider)
     : impl_(std::make_unique<Impl>(
           std::move(memory_services), std::move(resolution),
-          std::move(snapshot_provider), std::move(invoke_button), std::move(logger))) {}
+          std::move(snapshot_provider), std::move(invoke_button), std::move(logger),
+          std::move(revision_provider))) {}
 
 NteEscMenuBridge::~NteEscMenuBridge() {
     if (impl_ != nullptr && !impl_->Stop(std::chrono::milliseconds::zero())) {

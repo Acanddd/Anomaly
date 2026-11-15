@@ -1,4 +1,5 @@
 #include "anomaly/symbol_resolver.hpp"
+#include "anomaly/scan_sections.hpp"
 #include "anomaly/artifact_crypto.hpp"
 #include "anomaly/signature_updater.hpp"
 #include "pattern.hpp"
@@ -1611,11 +1612,9 @@ SymbolValidationResult SymbolValidatorRegistry::Validate(
     if (id.starts_with(prefix)) {
         const std::string_view section_name = id.substr(prefix.size());
         const auto sections = memory.Sections(module);
-        const auto section = std::ranges::find_if(sections, [&](const auto& candidate) {
-            return candidate.name == section_name;
-        });
-        if (section == sections.end()) return {false, "declared section is unavailable"};
-        return Contains(section->base, section->virtual_size, address)
+        const auto selected = ue5mem::SelectScanSections(module, sections, section_name);
+        if (selected.empty()) return {false, "declared section is unavailable"};
+        return std::ranges::any_of(selected,[&](const auto& section){return Contains(section.base, section.virtual_size, address);})
             ? SymbolValidationResult{true, {}}
             : SymbolValidationResult{false, "address is outside the declared section"};
     }
@@ -1766,10 +1765,10 @@ ProfileResolutionSnapshot SymbolResolver::Resolve(
             continue;
         }
         const auto sections = memory_->Sections(*module);
-        const auto section = std::ranges::find_if(sections, [&](const auto& candidate) {
-            return candidate.name == definition.section;
-        });
-        if (section == sections.end()) {
+        const auto selected = ue5mem::SelectScanSections(*module, sections, definition.section);
+        const bool section_fallback = definition.section == ".text" &&
+            std::ranges::none_of(sections, [](const auto& value){return value.name == ".text";});
+        if (selected.empty()) {
             symbol.state = SymbolResolutionState::SectionMissing;
             symbol.diagnostics.push_back("section is unavailable");
             snapshot.symbols.emplace(id, std::move(symbol));
@@ -1777,7 +1776,7 @@ ProfileResolutionSnapshot SymbolResolver::Resolve(
         }
 
         SignatureScanContext scan_context{
-            *module, *section,
+            *module, selected.front(),
             [&](auto address, auto destination, auto size) {
                 return memory_->Read(address, destination, size);
             },
@@ -1789,7 +1788,9 @@ ProfileResolutionSnapshot SymbolResolver::Resolve(
         bool using_recovery{};
         std::string recovery_pattern;
         const auto recover = [&]() -> std::optional<std::uintptr_t> {
-            if (!options_.signature_updater || stop.stop_requested()) return std::nullopt;
+            // Recovery's structural witness owns one concrete section. Do not
+            // silently recover against only the first of several aliased sections.
+            if (section_fallback || !options_.signature_updater || stop.stop_requested()) return std::nullopt;
             recovery_attempted = true;
             try {
                 const auto recovery = options_.signature_updater->Recover(
@@ -1828,6 +1829,12 @@ ProfileResolutionSnapshot SymbolResolver::Resolve(
             }
         }
         symbol.candidate_count = matches.size();
+        if (section_fallback && matches.size() > 1) {
+            symbol.state = SymbolResolutionState::Ambiguous;
+            symbol.diagnostics.push_back("multiple matches across executable section fallback");
+            snapshot.symbols.emplace(id, std::move(symbol));
+            continue;
+        }
         if (matches.empty()) {
             symbol.state = SymbolResolutionState::NotFound;
             snapshot.symbols.emplace(id, std::move(symbol));
@@ -1912,7 +1919,7 @@ ProfileResolutionSnapshot SymbolResolver::Resolve(
         symbol.rva = symbol.address - module->base;
         symbol.recovered = using_recovery;
         if (symbol.recovered) symbol.diagnostics.push_back("signature recovered from instruction structure");
-        if (options_.signature_updater && !stop.stop_requested()) {
+        if (!section_fallback && options_.signature_updater && !stop.stop_requested()) {
             try {
                 const auto diagnostic = options_.signature_updater->Learn(
                     scan_context, contract, definition.pattern, symbol.instruction, stop);

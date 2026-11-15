@@ -2,6 +2,8 @@
 
 #include "json.hpp"
 #include "anomaly/adapter_service_registry.hpp"
+#include "anomaly/game_cleanup_run.hpp"
+#include "anomaly/independent_window_input.hpp"
 #include "anomaly/hook_manager.hpp"
 #include "anomaly/i18n.hpp"
 #include "anomaly/plugin_capability_policy.hpp"
@@ -71,6 +73,7 @@ struct NteEscMenuButtonRegistry final {
     std::unordered_map<std::uint64_t, std::shared_ptr<Registration>> registrations;
     std::uint64_t next_handle_id{1};
     std::uint64_t next_sequence{1};
+    std::atomic_uint64_t revision{1};
     std::function<void()> host_action;
 };
 
@@ -461,6 +464,8 @@ enum class UiStackEntryKind : std::uint8_t {
     Menu,
     Popup,
     Font,
+    PanelStyle,
+    Combo,
 };
 
 struct UiStackEntry final {
@@ -1350,6 +1355,94 @@ int ANOMALY_CALL ProxyDrawScreenPrimitives(
         : 0;
 }
 
+
+int ANOMALY_CALL ProxyBeginPanelStyle(void* user, float scale, const float* colors) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return 0;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::begin_panel_style)>(context->service,offsetof(AnomalyUiServiceV1,begin_panel_style)) || !context->service->begin_panel_style){return 0;}
+    if(!HasUiField<decltype(AnomalyUiServiceV1::end_panel_style)>(context->service,offsetof(AnomalyUiServiceV1,end_panel_style)) || !context->service->end_panel_style || !ReserveUiStackEntry(context))return 0;
+    const int result=context->service->begin_panel_style(context->service->user, scale, colors);if(result)context->ui_stack->PushReserved({UiStackEntryKind::PanelStyle});return result;
+}
+
+void ANOMALY_CALL ProxyEndPanelStyle(void* user) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::end_panel_style)>(context->service,offsetof(AnomalyUiServiceV1,end_panel_style)) || !context->service->end_panel_style){return;}
+    if(!ConsumeUiStackEntry(context,UiStackEntryKind::PanelStyle))return;
+    context->service->end_panel_style(context->service->user);
+}
+
+int ANOMALY_CALL ProxyBeginCombo(void* user, AnomalyStringViewV1 id, AnomalyStringViewV1 preview, int enabled) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return 0;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::begin_combo)>(context->service,offsetof(AnomalyUiServiceV1,begin_combo)) || !context->service->begin_combo){return 0;}
+    if(!HasUiField<decltype(AnomalyUiServiceV1::end_combo)>(context->service,offsetof(AnomalyUiServiceV1,end_combo)) || !context->service->end_combo || !ReserveUiStackEntry(context))return 0;
+    const int result=context->service->begin_combo(context->service->user, id, preview, enabled);if(result)context->ui_stack->PushReserved({UiStackEntryKind::Combo});return result;
+}
+
+void ANOMALY_CALL ProxyEndCombo(void* user) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::end_combo)>(context->service,offsetof(AnomalyUiServiceV1,end_combo)) || !context->service->end_combo){return;}
+    if(!ConsumeUiStackEntry(context,UiStackEntryKind::Combo))return;
+    context->service->end_combo(context->service->user);
+}
+
+int ANOMALY_CALL ProxySelectable(void* user, AnomalyStringViewV1 label, int selected, float height, int enabled) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return 0;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::selectable)>(context->service,offsetof(AnomalyUiServiceV1,selectable)) || !context->service->selectable){return 0;}
+    return context->service->selectable(context->service->user, label, selected, height, enabled);
+}
+
+void ANOMALY_CALL ProxyContentSize(void* user, float* width, float* height) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::content_size)>(context->service,offsetof(AnomalyUiServiceV1,content_size)) || !context->service->content_size){return;}
+    context->service->content_size(context->service->user, width, height);
+}
+
+void ANOMALY_CALL ProxySetCursorY(void* user, float y) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::set_cursor_y)>(context->service,offsetof(AnomalyUiServiceV1,set_cursor_y)) || !context->service->set_cursor_y){return;}
+    context->service->set_cursor_y(context->service->user, y);
+}
+
+void ANOMALY_CALL ProxyFontScale(void* user, float scale) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::font_scale)>(context->service,offsetof(AnomalyUiServiceV1,font_scale)) || !context->service->font_scale){return;}
+    context->service->font_scale(context->service->user, scale);
+}
+
+void ANOMALY_CALL ProxyCenterPanel(void* user, float width, float height) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::center_panel)>(context->service,offsetof(AnomalyUiServiceV1,center_panel)) || !context->service->center_panel){return;}
+    context->service->center_panel(context->service->user, width, height);
+}
+
+void ANOMALY_CALL ProxyDummy(void* user, float width, float height) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::dummy)>(context->service,offsetof(AnomalyUiServiceV1,dummy)) || !context->service->dummy){return;}
+    context->service->dummy(context->service->user, width, height);
+}
+
+void ANOMALY_CALL ProxyMutedText(void* user, AnomalyStringViewV1 text) {
+    auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+    if(context && context->scope && !callback){return;}
+    if(!context || !HasUiField<decltype(AnomalyUiServiceV1::muted_text)>(context->service,offsetof(AnomalyUiServiceV1,muted_text)) || !context->service->muted_text){return;}
+    context->service->muted_text(context->service->user, text);
+}
+
+int ANOMALY_CALL ProxyCheckboxEnabled(void* user,AnomalyStringViewV1 label,int* value,int enabled){
+ auto* context=UiProxyContext(user);auto callback=AcquireUiCallback(context);
+ if(context&&context->scope&&!callback)return 0;
+ if(!context||!HasUiField<decltype(AnomalyUiServiceV1::checkbox_enabled)>(context->service,offsetof(AnomalyUiServiceV1,checkbox_enabled))||!context->service->checkbox_enabled)return 0;
+ return context->service->checkbox_enabled(context->service->user,label,value,enabled);
+}
 AnomalyUiServiceV1 MakeUiProxy(PluginUiProxyContext* context) noexcept {
     AnomalyUiServiceV1 proxy{
         sizeof(AnomalyUiServiceV1), ANOMALY_UI_SERVICE_V1_VERSION,
@@ -1376,6 +1469,19 @@ AnomalyUiServiceV1 MakeUiProxy(PluginUiProxyContext* context) noexcept {
     proxy.overlay_text = ProxyOverlayText;
     proxy.overlay_glass_ring_sector = ProxyOverlayGlassRingSector;
     proxy.draw_screen_primitives = ProxyDrawScreenPrimitives;
+    proxy.begin_panel_style = ProxyBeginPanelStyle;
+    proxy.end_panel_style = ProxyEndPanelStyle;
+    proxy.begin_combo = ProxyBeginCombo;
+    proxy.end_combo = ProxyEndCombo;
+    proxy.selectable = ProxySelectable;
+    proxy.content_size = ProxyContentSize;
+    proxy.set_cursor_y = ProxySetCursorY;
+    proxy.font_scale = ProxyFontScale;
+    proxy.center_panel = ProxyCenterPanel;
+    proxy.dummy = ProxyDummy;
+    proxy.muted_text = ProxyMutedText;
+    proxy.checkbox_enabled = ProxyCheckboxEnabled;
+
     if (context == nullptr || context->service == nullptr) {
         proxy.struct_size = offsetof(AnomalyUiServiceV1, user) + sizeof(proxy.user);
         return proxy;
@@ -1552,6 +1658,14 @@ struct JsonNode final {
     nlohmann::json* value{};
 };
 
+struct GameCleanupRegistration {
+    std::mutex mutex;
+    AnomalyGameCleanupCallbackV1 callback{};
+    void* user{};
+    uint64_t token{};
+    bool stopping{};
+};
+
 struct PluginServiceContext {
     PluginManager* manager{};
     PluginUiProxyContext* ui_proxy_context{};
@@ -1580,6 +1694,8 @@ struct PluginServiceContext {
     AnomalyLocalizationServiceV1 localization{};
     AnomalyDiagnosticsServiceV1 diagnostics{};
     AnomalySchedulerServiceV1 scheduler{};
+    AnomalyGameCleanupServiceV1 game_cleanup{};
+    std::shared_ptr<GameCleanupRegistration> cleanup_registration;
     AnomalyModsServiceV1 mods{};
     AnomalyIpcServiceV1 ipc_service{};
     AnomalyCommandsServiceV1 commands{};
@@ -1594,6 +1710,7 @@ struct PluginServiceContext {
     anomaly::UiResourceRegistry* ui_resources{};
     anomaly::InputService* input{};
     AnomalyWindowServiceV1 window{};
+    AnomalyWindowPresentationServiceV1 window_presentation{};
     AnomalyFontServiceV1 font{};
     AnomalyTextureServiceV1 texture{};
     AnomalyInputServiceV1 input_service{};
@@ -1972,6 +2089,7 @@ constexpr std::uint32_t kHostWindowFirstUse = 4U;
 
 std::uint32_t ToHostUiWindowFlags(const std::uint32_t flags) noexcept {
     std::uint32_t result{};
+    if ((flags & ANOMALY_WINDOW_V1_CUSTOM_CHROME) != 0) result |= anomaly::kHostCustomChromeFlag;
     if ((flags & ANOMALY_WINDOW_V1_NO_COLLAPSE) != 0) result |= kHostWindowNoCollapse;
     if ((flags & ANOMALY_WINDOW_V1_NO_SAVED_SETTINGS) != 0) {
         result |= kHostWindowNoSavedSettings;
@@ -2258,6 +2376,36 @@ AnomalyStatusV1 ANOMALY_CALL WriteV1(
     return source.data != nullptr && WriteHostMemory(address, source.data, source.size)
         ? StatusV1(ANOMALY_STATUS_V1_OK)
         : StatusV1(ANOMALY_STATUS_V1_FAILED, "memory write failed");
+}
+
+bool CompareExchangeHostU64(uintptr_t address, uint64_t expected, uint64_t desired,
+    uint64_t* observed) noexcept {
+    __try {
+        *observed = static_cast<uint64_t>(InterlockedCompareExchange64(
+            reinterpret_cast<volatile LONG64*>(address),static_cast<LONG64>(desired),static_cast<LONG64>(expected)));
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+AnomalyStatusV1 ANOMALY_CALL CompareExchangeU64V1(void* user, uintptr_t address,
+    uint64_t expected, uint64_t desired, uint64_t* observed, int32_t* exchanged) {
+    if (observed == nullptr || exchanged == nullptr) return StatusV1(ANOMALY_STATUS_V1_INVALID_ARGUMENT);
+    *observed = 0; *exchanged = 0;
+    const auto* context = static_cast<const PluginServiceContext*>(user);
+    if (!ValidServiceContext(context) || !address || (address & 7U))
+        return StatusV1(ANOMALY_STATUS_V1_INVALID_ARGUMENT);
+    auto callback = AcquireServiceCallback(context);
+    if (!callback) return StatusV1(ANOMALY_STATUS_V1_UNAVAILABLE);
+    const auto authorization = RequireRawMemoryCapability(context,"memory-write");
+    if (authorization.code != ANOMALY_STATUS_V1_OK) return authorization;
+    const auto* framework = static_cast<const AnomalyUe5FrameworkServiceV1*>(
+        anomaly::ProcessAdapterServices().Query(ANOMALY_UE5_FRAMEWORK_SERVICE_V1_ID,1));
+    if (framework == nullptr || framework->struct_size < sizeof(*framework) ||
+        framework->is_game_thread == nullptr) return StatusV1(ANOMALY_STATUS_V1_UNAVAILABLE);
+    if (!framework->is_game_thread(framework->user)) return StatusV1(ANOMALY_STATUS_V1_CONFLICT);
+    if (!CompareExchangeHostU64(address,expected,desired,observed))
+        return StatusV1(ANOMALY_STATUS_V1_FAILED);
+    *exchanged = *observed == expected ? 1 : 0;
+    return StatusV1(ANOMALY_STATUS_V1_OK);
 }
 
 AnomalyStatusV1 ANOMALY_CALL PluginDirectoryV1(
@@ -2707,6 +2855,17 @@ AnomalyStatusV1 ANOMALY_CALL ReleaseWindowV1(
     });
 }
 
+AnomalyStatusV1 ANOMALY_CALL SetWindowIndependentV1(
+    void* user, AnomalyGenerationHandleV1 handle, int32_t enabled) {
+    if (enabled != 0 && enabled != 1) return StatusV1(ANOMALY_STATUS_V1_INVALID_ARGUMENT);
+    return InvokeUiResourceService(user, [&](PluginServiceContext& context) {
+        if (!ValidGenerationHandle(context, handle) ||
+            !context.ui_resources->SetWindowIndependent(context.scope, UiHandle(handle), enabled != 0))
+            return StatusV1(ANOMALY_STATUS_V1_NOT_FOUND);
+        return StatusV1(ANOMALY_STATUS_V1_OK);
+    });
+}
+
 AnomalyStatusV1 ANOMALY_CALL SetWindowOpenV1(
     void* user, const AnomalyGenerationHandleV1 handle, const std::int32_t open) {
     return InvokeUiResourceService(user, [&](PluginServiceContext& context) {
@@ -2742,7 +2901,7 @@ AnomalyStatusV1 ANOMALY_CALL WindowStateV1(
         }
         const auto window = context.ui_resources->WindowState(context.scope, UiHandle(handle));
         if (!window) return StatusV1(ANOMALY_STATUS_V1_NOT_FOUND, "window handle is not live");
-        *state = {sizeof(*state), window->flags, window->width, window->height,
+        *state = {sizeof(*state), window->flags & ~(anomaly::kHostIndependentWindowFlag | anomaly::kHostIndependentFocusFlag), window->width, window->height,
             context.ui_resources->DeviceGeneration(), window->open ? 1 : 0, 0};
         return StatusV1(ANOMALY_STATUS_V1_OK);
     });
@@ -2780,7 +2939,7 @@ AnomalyStatusV1 ANOMALY_CALL BeginWindowV1(
                 window->constraints.minimum_height, window->constraints.maximum_width,
                 window->constraints.maximum_height);
         }
-        if (window->width > 0.0F && window->height > 0.0F) {
+        if ((flags & ANOMALY_WINDOW_V1_CUSTOM_CHROME)==0 && window->width > 0.0F && window->height > 0.0F) {
             ui->set_next_window_size(ui->user, window->width, window->height, kHostWindowFirstUse);
         }
         const std::string title = window->title + "###" + window->stable_id;
@@ -2796,15 +2955,19 @@ AnomalyStatusV1 ANOMALY_CALL BeginWindowV1(
         {
             ScopedUiProxyWindowKind scoped_kind(
                 *context.ui_proxy_context, UiStackEntryKind::ScopedWindow, UiHandle(handle));
+            anomaly::ScopedIndependentWindowOwner independent_owner({handle.id, handle.generation});
             result = ui->begin_window(
                 ui->user, {title.data(), title.size()}, &open,
-                ToHostUiWindowFlags(window->flags | flags));
+                ToHostUiWindowFlags(window->flags | flags) |
+                    (window->flags & (anomaly::kHostIndependentWindowFlag | anomaly::kHostIndependentFocusFlag)));
         }
         if (context.ui_stack->entries.size() != stack_size + 1U ||
             !context.ui_stack->HasTop(UiStackEntryKind::ScopedWindow, UiHandle(handle))) {
             context.ui_stack->MarkMismatch();
             return StatusV1(ANOMALY_STATUS_V1_UNAVAILABLE, "window stack is unavailable");
         }
+        if (result != 0 && open != 0) static_cast<void>(
+            context.ui_resources->ConsumeWindowFocusRequest(context.scope, UiHandle(handle)));
         if (open == 0) static_cast<void>(context.ui_resources->CloseWindow(context.scope, UiHandle(handle)));
         context.open_windows.push_back(UiHandle(handle));
         *visible = result != 0 ? 1 : 0;
@@ -3568,6 +3731,51 @@ AnomalyStatusV1 ANOMALY_CALL JsonSerializeV1(
     });
 }
 
+AnomalyStatusV1 ANOMALY_CALL RegisterGameCleanupV1(
+    void* user, AnomalyGameCleanupCallbackV1 callback, void* callback_user,
+    AnomalyGenerationHandleV1* handle) {
+    if (handle != nullptr) *handle = {};
+    if (callback == nullptr || handle == nullptr || IsSynchronousStateIoForbidden())
+        return StatusV1(ANOMALY_STATUS_V1_INVALID_ARGUMENT);
+    return InvokeScopedPlatform(user, [&](PluginServiceContext& context) {
+        const auto registration = context.cleanup_registration;
+        std::lock_guard lock(registration->mutex);
+        if (registration->stopping) return StatusV1(ANOMALY_STATUS_V1_UNAVAILABLE);
+        if (registration->callback) return StatusV1(ANOMALY_STATUS_V1_CONFLICT);
+        const std::weak_ptr<GameCleanupRegistration> weak = registration;
+        const auto token = context.scope->Register(anomaly::PluginResourceKind::Subscription,
+            "game-cleanup", [weak] {
+                if (const auto value = weak.lock()) {
+                    std::lock_guard guard(value->mutex);
+                    value->callback = nullptr; value->user = nullptr; value->token = 0;
+                }
+            });
+        if (!token) return StatusV1(ANOMALY_STATUS_V1_UNAVAILABLE);
+        registration->callback = callback;
+        registration->user = callback_user;
+        registration->token = token;
+        *handle = {token, context.generation};
+        return StatusV1(ANOMALY_STATUS_V1_OK);
+    });
+}
+
+AnomalyStatusV1 ANOMALY_CALL UnregisterGameCleanupV1(
+    void* user, AnomalyGenerationHandleV1 handle) {
+    return InvokeScopedPlatform(user, [&](PluginServiceContext& context) {
+        const auto registration = context.cleanup_registration;
+        uint64_t token{};
+        {
+            std::lock_guard lock(registration->mutex);
+            if (registration->stopping) return StatusV1(ANOMALY_STATUS_V1_CONFLICT);
+            if (handle.generation != context.generation || !handle.id ||
+                handle.id != registration->token) return StatusV1(ANOMALY_STATUS_V1_NOT_FOUND);
+            token = registration->token;
+        }
+        return StatusV1(context.scope->Release(token)
+            ? ANOMALY_STATUS_V1_OK : ANOMALY_STATUS_V1_NOT_FOUND);
+    });
+}
+
 AnomalyStatusV1 ANOMALY_CALL QueryServiceV1(
     void* host_context, AnomalyStringViewV1 service_id,
     std::uint32_t minimum_version, const void** service) {
@@ -3592,6 +3800,12 @@ AnomalyStatusV1 ANOMALY_CALL QueryServiceV1(
     if (id == ANOMALY_CORE_SERVICE_V1_ID &&
         minimum_version <= context->core.service_version) {
         *service = &context->core;
+        return StatusV1(ANOMALY_STATUS_V1_OK);
+    }
+    if (id == ANOMALY_GAME_CLEANUP_SERVICE_V1_ID && minimum_version <= 1) {
+        if (!context->manager->HasGameCleanupDispatcher())
+            return StatusV1(ANOMALY_STATUS_V1_UNAVAILABLE);
+        *service = &context->game_cleanup;
         return StatusV1(ANOMALY_STATUS_V1_OK);
     }
     if (id == ANOMALY_PLUGIN_STATE_SERVICE_V1_ID &&
@@ -3680,6 +3894,11 @@ AnomalyStatusV1 ANOMALY_CALL QueryServiceV1(
     if (id == ANOMALY_PATCH_SERVICE_V1_ID &&
         minimum_version <= context->patch.service_version) {
         *service = &context->patch;
+        return StatusV1(ANOMALY_STATUS_V1_OK);
+    }
+    if (id == ANOMALY_WINDOW_PRESENTATION_SERVICE_V1_ID &&
+        minimum_version <= context->window_presentation.service_version) {
+        *service = &context->window_presentation;
         return StatusV1(ANOMALY_STATUS_V1_OK);
     }
     if (id == ANOMALY_WINDOW_SERVICE_V1_ID &&
@@ -3828,6 +4047,12 @@ bool RecoverPluginUiStack(
                 break;
             case UiStackEntryKind::Popup:
                 end_popup();
+                break;
+            case UiStackEntryKind::PanelStyle:
+                try {if(proxy.service->end_panel_style)proxy.service->end_panel_style(proxy.service->user);}catch(...){}
+                break;
+            case UiStackEntryKind::Combo:
+                try {if(proxy.service->end_combo)proxy.service->end_combo(proxy.service->user);}catch(...){}
                 break;
             case UiStackEntryKind::Font:
                 if (services.manager != nullptr) {
@@ -4268,12 +4493,14 @@ AnomalyStatusV1 PluginManager::RegisterNteEscMenuButton(
                 const auto registry = weak_registry.lock();
                 if (registry == nullptr) return;
                 std::scoped_lock registration_lock(registry->mutex);
-                registry->registrations.erase(registration->token);
+                if (registry->registrations.erase(registration->token) != 0)
+                    registry->revision.fetch_add(1, std::memory_order_release);
             });
         if (registration->ledger_token == 0) {
             return StatusV1(ANOMALY_STATUS_V1_UNAVAILABLE, "plugin scope is stopping");
         }
         nte_esc_menu_buttons_->registrations.emplace(registration->token, registration);
+        nte_esc_menu_buttons_->revision.fetch_add(1, std::memory_order_release);
         *handle = {registration->token, scope->Generation()};
         return StatusV1(ANOMALY_STATUS_V1_OK);
     } catch (...) {
@@ -4307,6 +4534,10 @@ AnomalyStatusV1 PluginManager::UnregisterNteEscMenuButton(
         : StatusV1(
               ANOMALY_STATUS_V1_NOT_FOUND,
               "NTE ESC menu button handle is stale");
+}
+
+std::uint64_t PluginManager::NteEscMenuButtonsRevision() const noexcept {
+    return nte_esc_menu_buttons_->revision.load(std::memory_order_acquire);
 }
 
 std::vector<anomaly::NteEscMenuButtonSnapshot> PluginManager::NteEscMenuButtons() const {
@@ -4562,7 +4793,7 @@ bool PluginManager::Activate(LoadedPlugin& plugin) {
     plugin.service_context.core = {
         sizeof(AnomalyCoreServiceV1), ANOMALY_CORE_SERVICE_V1_VERSION,
         &plugin.service_context,
-        LogV1, ReadV1, WriteV1, PluginDirectoryV1};
+        LogV1, ReadV1, WriteV1, PluginDirectoryV1, CompareExchangeU64V1};
     plugin.service_context.mods = {sizeof(AnomalyModsServiceV1), ANOMALY_MODS_SERVICE_V1_VERSION,
         &plugin.service_context, ModsModeV1, ModsEnumerateV1, ModsSetEnabledV1, ModsAssetsV1, ModsSynchronizeV1};
     plugin.service_context.plugin_state = {
@@ -4630,6 +4861,8 @@ bool PluginManager::Activate(LoadedPlugin& plugin) {
     plugin.service_context.patch = {
         sizeof(AnomalyPatchServiceV1), ANOMALY_PATCH_SERVICE_V1_VERSION,
         &plugin.service_context, ApplyPatchV1, ReleasePatchV1};
+    plugin.service_context.window_presentation = {
+        sizeof(AnomalyWindowPresentationServiceV1), 1, &plugin.service_context, SetWindowIndependentV1};
     plugin.service_context.window = {
         sizeof(AnomalyWindowServiceV1), ANOMALY_WINDOW_SERVICE_V1_VERSION,
         &plugin.service_context,
@@ -4653,6 +4886,11 @@ bool PluginManager::Activate(LoadedPlugin& plugin) {
     plugin.service_context.ahud = {
         sizeof(AnomalyUe5AhudServiceV1), ANOMALY_UE5_AHUD_SERVICE_V1_VERSION,
         &plugin.service_context, SubscribeAhudV1, UnsubscribeAhudV1};
+    if (!plugin.service_context.cleanup_registration)
+        plugin.service_context.cleanup_registration = std::make_shared<GameCleanupRegistration>();
+    plugin.service_context.game_cleanup = {
+        sizeof(AnomalyGameCleanupServiceV1), 1, &plugin.service_context,
+        RegisterGameCleanupV1, UnregisterGameCleanupV1};
     plugin.service_context.ui = &plugin.ui_proxy;
     plugin.host_api = {
         sizeof(AnomalyHostApiV1), ANOMALY_PLUGIN_API_V1_MAJOR, ANOMALY_PLUGIN_API_V1_MINOR,
@@ -5348,6 +5586,7 @@ bool PluginManager::UnloadIndicesWithDeadline(
         // queued dispatcher work cancelled before it is quarantined.
         if (scope != nullptr) {
             scope->FreezeCallbackSources();
+            ui_resources_->SuspendWindowPresentation(scope);
             if (queued_callback_canceller_) {
                 try { queued_callback_canceller_(plugin.view.id, generation); } catch (...) {}
             }
@@ -5370,6 +5609,56 @@ bool PluginManager::UnloadIndicesWithDeadline(
                 quarantine = true;
                 timed_out = true;
                 quarantine_reason = "callback barrier timed out";
+            }
+        }
+
+        if (!quarantine && plugin.started && plugin.service_context.cleanup_registration) {
+            const auto registration = plugin.service_context.cleanup_registration;
+            AnomalyGameCleanupCallbackV1 cleanup{};
+            void* cleanup_user{};
+            {
+                std::lock_guard lock(registration->mutex);
+                registration->stopping = true;
+                cleanup = registration->callback;
+                cleanup_user = registration->user;
+            }
+            if (cleanup) {
+                auto result = anomaly::GameCleanupRun::Result::Failed;
+                // No new generation may activate while this serialized lifecycle
+                // operation yields the execution gate for the Game dispatcher.
+                if (!plugin.faulted) RunPluginLoadStep([&] {
+                    result = anomaly::GameCleanupRun::Run(game_cleanup_dispatcher_,
+                        [scope, generation, cleanup, cleanup_user](uint32_t remaining, uint32_t attempt) {
+                            auto lease = scope->AcquireLifecycleLease(generation);
+                            if (!lease) return uint32_t{ANOMALY_GAME_CLEANUP_V1_FAILED};
+                            const ScopedLogThreadDomain game_domain(anomaly::LogThreadDomain::Game);
+                            // Service calls use the special drained lifecycle lease;
+                            // ordinary callback admission remains frozen.
+                            ScopedPluginCallback activation(scope, generation, true);
+                            AnomalyGameCleanupContextV1 info{};
+                            info.struct_size = sizeof(info);
+                            info.remaining_milliseconds = remaining;
+                            info.plugin_generation = generation;
+                            info.stop_request_id = generation;
+                            info.attempt = attempt;
+                            const auto* world = static_cast<const AnomalyUe5WorldServiceV1*>(
+                                anomaly::ProcessAdapterServices().Query(
+                                    ANOMALY_UE5_WORLD_SERVICE_V1_ID, 1));
+                            if (world && world->struct_size >= sizeof(*world) && world->current &&
+                                world->current(world->user, &info.world).code == ANOMALY_STATUS_V1_OK &&
+                                info.world.id && info.world.generation)
+                                info.world_state = ANOMALY_GAME_CLEANUP_WORLD_V1_AVAILABLE;
+                            else info.world = {};
+                            return cleanup(cleanup_user, &info);
+                        }, deadline);
+                });
+                if (result != anomaly::GameCleanupRun::Result::Complete) {
+                    quarantine = true;
+                    timed_out = result == anomaly::GameCleanupRun::Result::TimedOut;
+                    quarantine_reason = timed_out ? "Game cleanup timed out"
+                        : result == anomaly::GameCleanupRun::Result::DispatcherUnavailable
+                            ? "Game cleanup dispatcher unavailable" : "Game cleanup failed";
+                }
             }
         }
 
@@ -6612,6 +6901,8 @@ PluginRuntimeDiagnosticsSnapshot PluginManager::DiagnosticsSnapshot() const {
                 ServiceCandidate{ANOMALY_UI_SERVICE_V1_ID,
                     plugin.service_context.ui == nullptr ? 0U : plugin.service_context.ui->service_version,
                     UiService() != nullptr},
+                ServiceCandidate{ANOMALY_WINDOW_PRESENTATION_SERVICE_V1_ID,
+                    plugin.service_context.window_presentation.service_version, true},
                 ServiceCandidate{ANOMALY_WINDOW_SERVICE_V1_ID,
                     plugin.service_context.window.service_version, true},
                 ServiceCandidate{ANOMALY_FONT_SERVICE_V1_ID,

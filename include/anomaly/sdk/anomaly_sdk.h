@@ -4,6 +4,8 @@
 #include "anomaly/sdk/services/core.h"
 #include "anomaly/sdk/services/plugin_state.h"
 #include "anomaly/sdk/services/platform.h"
+#include "anomaly/sdk/services/game_cleanup.h"
+#include "anomaly/sdk/services/window_presentation.h"
 #include "anomaly/sdk/services/localization.h"
 #include "anomaly/sdk/services/interop.h"
 #include "anomaly/sdk/services/ipc.h"

@@ -33,6 +33,12 @@ void SetHostUiPluginDrawSuppressed(bool suppressed) noexcept;
 [[nodiscard]] bool HostUiCurrentWindowLocked() noexcept;
 void SetHostUiCurrentWindowLocked(bool locked) noexcept;
 void PrepareHostUiFrame() noexcept;
+void FinishHostUiFrame() noexcept;
+[[nodiscard]] bool ConsumeHostUiIndependentFocus(bool foreground, float& x, float& y) noexcept;
+void UpdateHostUiPointer(float x, float y) noexcept;
+void UpdateHostUiPointerButton(bool down) noexcept;
+void ResetHostUiPointer() noexcept;
+[[nodiscard]] bool HostUiHasIndependentWindows() noexcept;
 [[nodiscard]] bool UpdateHostUiWindowState() noexcept;
 
 }  // namespace anomaly

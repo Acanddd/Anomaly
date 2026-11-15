@@ -1,4 +1,5 @@
 #include "memory.hpp"
+#include "anomaly/scan_sections.hpp"
 
 #include "anomaly/thread_local_value.hpp"
 
@@ -257,7 +258,8 @@ std::vector<SectionInfo> EnumerateSections(const ModuleInfo& module) {
         std::memcpy(name.data(), header.Name, IMAGE_SIZEOF_SHORT_NAME);
         const auto offset = static_cast<std::size_t>(header.VirtualAddress);
         const auto size = static_cast<std::size_t>(header.Misc.VirtualSize);
-        if (offset >= image_size) continue;
+        if (offset >= image_size || size > image_size - offset ||
+            module.base > std::numeric_limits<std::uintptr_t>::max() - image_size) return {};
         sections.push_back({
             name.data(), module.base + offset, std::min(size, image_size - offset),
             header.Characteristics});
@@ -293,13 +295,18 @@ std::vector<std::uintptr_t> ScanSection(
     const Pattern& pattern,
     std::size_t limit) {
     const auto sections = EnumerateSections(module);
-    const auto found = std::find_if(sections.begin(), sections.end(), [&](const auto& section) {
-        return section.name == section_name;
-    });
-    if (found == sections.end() || found->virtual_size == 0) {
-        return {};
+    const auto selected = SelectScanSections(module, sections, section_name);
+    std::vector<std::uintptr_t> matches;
+    // An unreadable sibling cannot be silently omitted from a uniqueness claim.
+    for (const auto& section : selected)
+        if (!HasRange(section.base, section.virtual_size, false))return {};
+    for (const auto& section : selected) {
+        for (const auto address : ScanSection(section, pattern, limit)) {
+            if (std::find(matches.begin(), matches.end(), address) == matches.end())matches.push_back(address);
+            if (limit && matches.size() >= limit)return matches;
+        }
     }
-    return ScanSection(*found, pattern, limit);
+    return matches;
 }
 
 std::vector<std::uintptr_t> ScanSection(

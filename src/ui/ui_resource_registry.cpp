@@ -1,4 +1,5 @@
 #include "anomaly/ui_resource_registry.hpp"
+#include "anomaly/independent_window_input.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -439,6 +440,7 @@ public:
         if (found == leases.end()) return false;
         const Lease& lease = found->second;
         if (lease.kind == UiResourceKind::Window) {
+            IndependentWindows().Remove({handle, lease.generation});
             const auto window = windows.find(lease.window.stable_id);
             if (window != windows.end() && window->second == handle) windows.erase(window);
         } else {
@@ -702,6 +704,36 @@ public:
         return {handle};
     }
 
+    void SuspendWindowPresentation(const std::shared_ptr<PluginScope>& scope) noexcept {
+        std::scoped_lock lock(mutex);
+        for (auto& [handle, lease] : leases) {
+            if (lease.kind == UiResourceKind::Window && MatchesScope(lease,scope)) {
+                IndependentWindows().Remove({handle,lease.generation});
+                lease.window.flags &= ~kHostIndependentFocusFlag;
+            }
+        }
+    }
+    [[nodiscard]] bool ConsumeWindowFocusRequest(
+        const std::shared_ptr<PluginScope>& scope, UiResourceHandle handle) noexcept {
+        std::scoped_lock lock(mutex);
+        const auto lease = leases.find(handle.id);
+        if (lease == leases.end() || lease->second.kind != UiResourceKind::Window ||
+            !MatchesScope(lease->second, scope)) return false;
+        lease->second.window.flags &= ~kHostIndependentFocusFlag;
+        return true;
+    }
+    [[nodiscard]] bool SetWindowIndependent(
+        const std::shared_ptr<PluginScope>& scope, UiResourceHandle handle, bool enabled) noexcept {
+        std::scoped_lock lock(mutex);
+        const auto lease = leases.find(handle.id);
+        if (lease == leases.end() || lease->second.kind != UiResourceKind::Window ||
+            !MatchesScope(lease->second, scope)) return false;
+        auto& flags = lease->second.window.flags;
+        flags = enabled ? flags | kHostIndependentWindowFlag : flags & ~(kHostIndependentWindowFlag | kHostIndependentFocusFlag);
+        if (!enabled) IndependentWindows().Remove({handle.id, lease->second.generation});
+        return true;
+    }
+
     [[nodiscard]] bool SetWindowOpen(
         const std::shared_ptr<PluginScope>& scope, const UiResourceHandle handle,
         const bool open) noexcept {
@@ -711,7 +743,14 @@ public:
             !MatchesScope(lease->second, scope)) {
             return false;
         }
-        lease->second.window.open = open;
+        auto& window = lease->second.window;
+        if (open && !window.open && (window.flags & kHostIndependentWindowFlag))
+            window.flags |= kHostIndependentFocusFlag;
+        if (!open) {
+            window.flags &= ~kHostIndependentFocusFlag;
+            IndependentWindows().Remove({handle.id, lease->second.generation});
+        }
+        window.open = open;
         if (lease->second.window.persist_settings) {
             const auto persistent = persistent_windows.find(lease->second.window.stable_id);
             if (persistent != persistent_windows.end()) persistent->second.open = open;
@@ -753,6 +792,7 @@ public:
         if (!found) return false;
 
         const auto set_open = [&](WindowData& window, const bool value) {
+            if (value && !window.open && (window.flags & kHostIndependentWindowFlag))window.flags |= kHostIndependentFocusFlag;
             window.open = value;
             if (!window.persist_settings) return;
             const auto persistent = persistent_windows.find(window.stable_id);
@@ -763,6 +803,8 @@ public:
                 static_cast<void>(handle);
                 if (lease.kind == UiResourceKind::Window && MatchesScope(lease, scope)) {
                     set_open(lease.window, false);
+                    lease.window.flags &= ~kHostIndependentFocusFlag;
+                    IndependentWindows().Remove({handle, lease.generation});
                 }
             }
             return true;
@@ -790,7 +832,13 @@ public:
             !MatchesScope(lease->second, scope)) {
             return false;
         }
-        lease->second.window.open = !lease->second.window.open;
+        auto& window = lease->second.window;
+        window.open = !window.open;
+        if (window.open && (window.flags & kHostIndependentWindowFlag))window.flags |= kHostIndependentFocusFlag;
+        if (!window.open) {
+            window.flags &= ~kHostIndependentFocusFlag;
+            IndependentWindows().Remove({handle.id,lease->second.generation});
+        }
         if (lease->second.window.persist_settings) {
             const auto persistent = persistent_windows.find(lease->second.window.stable_id);
             if (persistent != persistent_windows.end()) persistent->second.open = lease->second.window.open;
@@ -1122,6 +1170,20 @@ UiResourceRegistry::~UiResourceRegistry() = default;
 UiResourceHandle UiResourceRegistry::RegisterWindow(
     const std::shared_ptr<PluginScope>& scope, UiWindowRequest request) {
     return impl_->RegisterWindow(scope, std::move(request));
+}
+
+void UiResourceRegistry::SuspendWindowPresentation(const std::shared_ptr<PluginScope>& scope) {
+    impl_->SuspendWindowPresentation(scope);
+}
+
+bool UiResourceRegistry::ConsumeWindowFocusRequest(
+    const std::shared_ptr<PluginScope>& scope, UiResourceHandle handle) {
+    return impl_->ConsumeWindowFocusRequest(scope, handle);
+}
+
+bool UiResourceRegistry::SetWindowIndependent(
+    const std::shared_ptr<PluginScope>& scope, UiResourceHandle handle, bool enabled) {
+    return impl_->SetWindowIndependent(scope, handle, enabled);
 }
 
 bool UiResourceRegistry::OpenWindow(

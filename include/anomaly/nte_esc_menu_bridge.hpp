@@ -16,6 +16,7 @@ namespace anomaly {
 class NteEscMenuBridge final {
 public:
     using SnapshotProvider = std::function<std::vector<NteEscMenuButtonSnapshot>()>;
+    using RevisionProvider = std::function<std::uint64_t()>;
     using InvokeButton = std::function<void(AnomalyGenerationHandleV1)>;
     using Logger = std::function<void(std::uint32_t level, std::string message)>;
 
@@ -24,7 +25,8 @@ public:
         ProfileResolutionSnapshot resolution,
         SnapshotProvider snapshot_provider,
         InvokeButton invoke_button,
-        Logger logger = {});
+        Logger logger = {},
+        RevisionProvider revision_provider = {});
     ~NteEscMenuBridge();
 
     NteEscMenuBridge(const NteEscMenuBridge&) = delete;

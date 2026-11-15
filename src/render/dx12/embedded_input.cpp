@@ -1,3 +1,4 @@
+// Independent presentation uses bounded client-coordinate capture.
 #include "embedded_host_internal.hpp"
 #include "embedded_input_policy.hpp"
 
@@ -261,7 +262,7 @@ anomaly::InputUiCaptureState CurrentUiCapture() noexcept {
     if (io.WantCaptureKeyboard) {
         capture.flags |= anomaly::ToFlags(anomaly::InputCaptureFlag::Keyboard);
     }
-    if (io.WantTextInput || io.WantCaptureKeyboard) {
+    if (io.WantTextInput) {
         capture.flags |= anomaly::ToFlags(anomaly::InputCaptureFlag::Text);
     }
     // This runs both immediately after NewFrame and after every plugin has
@@ -323,8 +324,11 @@ LRESULT CALLBACK EmbeddedWindowProc(HWND window, UINT message, WPARAM wparam, LP
         // Restoration also runs while Render is stopping, before this subclass
         // and the ImGui context are released.
         if (state->ime.Message() != 0 && message == state->ime.Message())
-            return state->ime.Apply(!anomaly::HostUiMenusCollapsed()) ? TRUE : FALSE;
-        if (IsFocusLossMessage(message, wparam)) state->ime.Reset(false);
+            return state->ime.Apply(anomaly::HostUiMenusCaptureMouse()) ? TRUE : FALSE;
+        if (IsFocusLossMessage(message, wparam)) {
+            state->ime.Reset(false);
+            anomaly::ResetHostUiPointer();
+        }
         else if (message == WM_SETFOCUS) state->ime.RequestApply();
     }
     if (state != nullptr && state->renderer.load() == RendererLifecycle::Ready) {
@@ -332,12 +336,23 @@ LRESULT CALLBACK EmbeddedWindowProc(HWND window, UINT message, WPARAM wparam, LP
     }
     if (state != nullptr && state->renderer.load() == RendererLifecycle::Ready &&
         ImGui::GetCurrentContext() != nullptr) {
-        // A locked window remains visible while menus are collapsed, but it
-        // never owns input. The menu gate therefore precedes all ImGui flags.
-        const bool menus_expanded = !anomaly::HostUiMenusCollapsed();
+        // Independent windows own input only while the pointer is inside their
+        // last completed Render bounds. Locked legacy windows remain passive.
+        POINT independent_pointer{};
+        if (GetForegroundWindow() == window && GetCursorPos(&independent_pointer) &&
+            ScreenToClient(window, &independent_pointer)) {
+            anomaly::UpdateHostUiPointer(static_cast<float>(independent_pointer.x), static_cast<float>(independent_pointer.y));
+        } else {
+            anomaly::UpdateHostUiPointer(-1.0e30F, -1.0e30F);
+        }
+        const bool menus_expanded = anomaly::HostUiMenusCaptureMouse();
         if (!menus_expanded) state->ime.Reset();
         const ImGuiIO& io = ImGui::GetIO();
         const bool capture_mouse = anomaly::HostUiMenusCaptureMouse();
+        // Preserve a drag begun inside an independent window until its release.
+        // Compute this message's capture before clearing the latch on button-up.
+        if (message == WM_LBUTTONDOWN) anomaly::UpdateHostUiPointerButton(true);
+        if (message == WM_LBUTTONUP) anomaly::UpdateHostUiPointerButton(false);
         const bool capture_keyboard = menus_expanded && io.WantCaptureKeyboard;
         // WantTextInput is the explicit desktop/mobile text-input signal. On
         // desktop ImGui versions it is commonly false for InputText, while
@@ -357,7 +372,8 @@ LRESULT CALLBACK EmbeddedWindowProc(HWND window, UINT message, WPARAM wparam, LP
             return ForwardToGameWindowProc(state, window, message, wparam, lparam);
         }
 
-        if (capture_mouse && (mouse_message || raw_mouse)) {
+        if ((capture_mouse && (mouse_message || raw_mouse)) ||
+            (anomaly::HostUiHasIndependentWindows() && message == WM_MOUSEMOVE)) {
             static_cast<void>(ImGui_ImplWin32_WndProcHandler(
                 window, message, wparam, lparam));
         }

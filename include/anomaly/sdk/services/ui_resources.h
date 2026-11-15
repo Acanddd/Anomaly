@@ -18,7 +18,8 @@ extern "C" {
 typedef enum AnomalyWindowFlagsV1 {
     ANOMALY_WINDOW_V1_NONE = 0,
     ANOMALY_WINDOW_V1_NO_SAVED_SETTINGS = 1u << 0u,
-    ANOMALY_WINDOW_V1_NO_COLLAPSE = 1u << 1u
+    ANOMALY_WINDOW_V1_NO_COLLAPSE = 1u << 1u,
+    ANOMALY_WINDOW_V1_CUSTOM_CHROME = 1u << 2u
 } AnomalyWindowFlagsV1;
 
 typedef struct AnomalyWindowSpecV1 {

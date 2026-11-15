@@ -1,4 +1,4 @@
-#include "analyzer.hpp"
+﻿#include "analyzer.hpp"
 #include "anomaly/core_api.hpp"
 #include "anomaly/adapter_service_registry.hpp"
 #include "anomaly/crash_reporter.hpp"
@@ -926,6 +926,23 @@ DWORD PreparePluginHost(
                     domain, std::move(owner), generation, std::move(callback)));
             });
         plugins->SetTranslator(context->translator);
+        plugins->SetGameCleanupDispatcher([session = context->session](std::function<void()> callback) {
+            const auto runtime = session.lock();
+            if (!runtime || !callback) return false;
+            // Host-owned queue is distinct from cancelled plugin work. PumpGame
+            // remains the only executor; no Worker/Lifecycle fallback is allowed.
+            return static_cast<bool>(runtime->Dispatchers().Post(
+                anomaly::ExecutionDomain::Game, "anomaly.game-cleanup", 1,
+                [callback = std::move(callback)] {
+                    const auto* framework = static_cast<const AnomalyUe5FrameworkServiceV1*>(
+                        anomaly::ProcessAdapterServices().Query(ANOMALY_UE5_FRAMEWORK_SERVICE_V1_ID, 1));
+                    if (framework && framework->struct_size >= sizeof(*framework) &&
+                        framework->is_game_thread && framework->is_game_thread(framework->user))
+                        callback();
+                    // No verified Game thread: do not run on a fallback thread.
+                    // The pending cleanup reaches its fixed deadline and quarantines.
+                }));
+        });
         if (context->telemetry) {
             plugins->SetUsageObserver([session = context->session, telemetry = context->telemetry](
                 std::vector<ue5mem::PluginUsageObservation> observations) {

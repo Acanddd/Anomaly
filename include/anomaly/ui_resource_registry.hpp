@@ -96,6 +96,10 @@ struct UiWindowPersistentState final {
     UiWindowConstraints constraints;
 };
 
+inline constexpr std::uint32_t kHostIndependentWindowFlag = 1u << 29u;
+inline constexpr std::uint32_t kHostIndependentFocusFlag = 1u << 28u;
+inline constexpr std::uint32_t kHostCustomChromeFlag = 1u << 30u;
+
 struct UiWindowSnapshot final {
     UiResourceHandle handle;
     std::string owner;
@@ -192,6 +196,11 @@ public:
 
     [[nodiscard]] UiResourceHandle RegisterWindow(
         const std::shared_ptr<PluginScope>& scope, UiWindowRequest request);
+    void SuspendWindowPresentation(const std::shared_ptr<PluginScope>& scope);
+    [[nodiscard]] bool ConsumeWindowFocusRequest(
+        const std::shared_ptr<PluginScope>& scope, UiResourceHandle handle);
+    [[nodiscard]] bool SetWindowIndependent(
+        const std::shared_ptr<PluginScope>& scope, UiResourceHandle handle, bool enabled);
     [[nodiscard]] bool OpenWindow(
         const std::shared_ptr<PluginScope>& scope, UiResourceHandle handle);
     [[nodiscard]] bool CloseWindow(

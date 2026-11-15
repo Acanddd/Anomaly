@@ -1,3 +1,5 @@
+
+#include "anomaly/independent_window_input.hpp"
 #include "embedded_host_internal.hpp"
 #include "embedded_d3d12_interop.hpp"
 #include "anomaly/host_ui_service.hpp"
@@ -816,7 +818,7 @@ bool RebuildBackBuffersAfterResize(
 void UpdateMenuCursor(EmbeddedState& state, bool active) {
     ImGuiIO& io = ImGui::GetIO();
     io.MouseDrawCursor = active;
-    if (active) {
+    if (active || anomaly::HostUiHasIndependentWindows()) {
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
     } else {
         io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
@@ -1597,6 +1599,7 @@ bool ReleaseGraphics(
         }
         state.submission_unfenced = false;
     }
+    anomaly::IndependentWindows().Clear();
     if (state.imgui_context != nullptr) UpdateMenuCursor(state, false);
     if (state.fence != nullptr) {
         for (auto& frame : state.frames) {
@@ -1816,6 +1819,13 @@ void RenderEmbedded(IDXGISwapChain* swap_chain, UINT flags) {
     }
     const auto frame_begin_started = sampled ? std::chrono::steady_clock::now()
                                              : std::chrono::steady_clock::time_point{};
+    POINT independent_pointer{};
+    if (GetForegroundWindow() == state->window && GetCursorPos(&independent_pointer) &&
+        ScreenToClient(state->window, &independent_pointer)) {
+        anomaly::UpdateHostUiPointer(static_cast<float>(independent_pointer.x), static_cast<float>(independent_pointer.y));
+    } else {
+        anomaly::UpdateHostUiPointer(-1.0e30F, -1.0e30F);
+    }
     UpdateMenuCursor(*state, anomaly::HostUiMenusCaptureMouse());
     ImGui_ImplWin32_NewFrame();
     if (!state->input_installed) FeedPolledInput(*state);
@@ -1864,6 +1874,21 @@ void RenderEmbedded(IDXGISwapChain* swap_chain, UINT flags) {
                 EmbeddedPerformanceStage::RenderPluginDraw,
                 phase_completed - phase_started);
             phase_started = phase_completed;
+        }
+        anomaly::FinishHostUiFrame();
+        float focus_x{}, focus_y{};
+        if (anomaly::ConsumeHostUiIndependentFocus(
+                GetForegroundWindow() == state->window, focus_x, focus_y)) {
+            POINT target{static_cast<LONG>(focus_x), static_cast<LONG>(focus_y)};
+            if (ClientToScreen(state->window, &target)) {
+                // Only a successful closed->open Render owns this one-shot.
+                // Existing cursor policy saves/releases clip/capture and draws fallback.
+                UpdateMenuCursor(*state, true);
+                if (SetCursorPos(target.x, target.y)) {
+                    anomaly::UpdateHostUiPointer(focus_x, focus_y);
+                    ImGui::GetIO().AddMousePosEvent(focus_x, focus_y);
+                }
+            }
         }
         if (input_frame_published) PublishEmbeddedUiCapture(*state);
         if (sampled) {

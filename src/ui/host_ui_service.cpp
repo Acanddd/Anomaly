@@ -1,4 +1,6 @@
 #include "anomaly/host_ui_service.hpp"
+#include "anomaly/independent_window_input.hpp"
+#include "anomaly/ui_resource_registry.hpp"
 #include "anomaly/liquid_glass.hpp"
 #include "anomaly/platform_ui_theme.hpp"
 #include "anomaly/thread_local_value.hpp"
@@ -25,6 +27,8 @@ namespace anomaly {
 namespace {
 
 std::atomic_bool g_menus_collapsed{};
+IndependentWindowInput& g_independent_input = IndependentWindows();
+ThreadLocalScalar<bool> g_begin_independent;
 std::atomic_bool g_menu_state_pending{true};
 std::atomic_bool g_management_expansion_requested{};
 std::atomic_bool g_developer_mode{};
@@ -109,7 +113,7 @@ bool SynchronizePluginWindowHostCollapse(
     const bool was_collapsed = IsPluginWindowCollapsed(state);
     const bool host_was_collapsed = state.host_collapsed;
     state.host_collapsed =
-        g_frame_menus_collapsed.Get() && !state.pinned && !IsWindowLocked(window.ID);
+        g_frame_menus_collapsed.Get() && !g_begin_independent.Get() && !state.pinned && !IsWindowLocked(window.ID);
     const bool collapsed = IsPluginWindowCollapsed(state);
     if (!host_was_collapsed && state.host_collapsed && !state.manually_collapsed) {
         state.auto_fit_after_expand = CapturePluginWindowExpandedSize(state, window);
@@ -431,6 +435,30 @@ void ANOMALY_CALL SetNextWindowSize(void*, float width, float height, std::uint3
 
 int ANOMALY_CALL BeginWindow(
     void*, AnomalyStringViewV1 title, int* open, std::uint32_t flags) {
+    const bool request_independent_focus = (flags & kHostIndependentFocusFlag) != 0;
+    g_begin_independent.Set((flags & kHostIndependentWindowFlag) != 0);
+    flags &= ~(kHostIndependentWindowFlag | kHostIndependentFocusFlag);
+    const bool custom_chrome=(flags&(anomaly::kHostCustomChromeFlag))!=0;
+    flags &= ~(anomaly::kHostCustomChromeFlag);
+    if(custom_chrome) {
+        bool visible=open==nullptr || *open!=0;
+        const auto text=Copy(title);
+        const bool result=ImGui::Begin(text.c_str(),open?&visible:nullptr,
+            ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|
+            ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoScrollbar);
+        if(ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape) && !ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel))visible=false;
+        g_host_ui_window_scopes.Get().emplace_back();
+        if(open)*open=visible?1:0;
+        if(g_begin_independent.Get()&&visible) {
+            const auto* window=ImGui::GetCurrentWindow();
+            const IndependentWindowInput::Rect rect{window->Pos.x,window->Pos.y,
+                window->Pos.x+window->Size.x,window->Pos.y+window->Size.y,g_independent_window_owner.Get()};
+            g_independent_input.Add(rect);
+            if(request_independent_focus)g_independent_input.RequestFocus(rect);
+        }
+        return result&&visible?1:0;
+    }
+
     const ImVec2 requested_size =
         (GImGui->NextWindowData.HasFlags & ImGuiNextWindowDataFlags_HasSize) != 0
         ? GImGui->NextWindowData.SizeVal : ImVec2(0.0F, 0.0F);
@@ -533,6 +561,17 @@ int ANOMALY_CALL BeginWindow(
     }
     const bool open_after_header = DrawPluginWindowChrome(*window, text, open, window_flags, chrome);
     if (open != nullptr) *open = open_after_header ? 1 : 0;
+    if (g_begin_independent.Get() && open_after_header) {
+        const auto* viewport = ImGui::GetMainViewport();
+        const IndependentWindowInput::Rect rect{
+            std::max(window->Pos.x, viewport->Pos.x), std::max(window->Pos.y, viewport->Pos.y),
+            std::min(window->Pos.x + window->Size.x, viewport->Pos.x + viewport->Size.x),
+            std::min(window->Pos.y + window->Size.y, viewport->Pos.y + viewport->Size.y),
+            g_independent_window_owner.Get()};
+        g_independent_input.Add(rect);
+        if (request_independent_focus && !IsPluginWindowCollapsed(chrome) &&
+            rect.right > rect.left && rect.bottom > rect.top) g_independent_input.RequestFocus(rect);
+    }
     if (!open_after_header || IsPluginWindowCollapsed(chrome)) {
         chrome.body_auto_fit_frames_x = 0;
         chrome.body_auto_fit_frames_y = 0;
@@ -871,9 +910,9 @@ int ANOMALY_CALL BeginTable(
     float outer_width, float outer_height) {
     constexpr std::uint32_t kKnownFlags =
         ANOMALY_UI_TABLE_V1_SIZING_FIXED_FIT |
-        ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP;
+        ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP | ANOMALY_UI_TABLE_V1_SIZING_STRETCH_SAME;
     if (columns <= 0 || (flags & ~kKnownFlags) != 0 ||
-        (flags & kKnownFlags) == kKnownFlags) return 0;
+        (flags != 0 && (flags & (flags-1)) != 0)) return 0;
     const std::string text = Copy(id);
     ImGuiTableFlags imgui_flags = ImGuiTableFlags_None;
     if ((flags & ANOMALY_UI_TABLE_V1_SIZING_FIXED_FIT) != 0) {
@@ -882,6 +921,7 @@ int ANOMALY_CALL BeginTable(
     if ((flags & ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP) != 0) {
         imgui_flags |= ImGuiTableFlags_SizingStretchProp;
     }
+    if ((flags & ANOMALY_UI_TABLE_V1_SIZING_STRETCH_SAME) != 0)imgui_flags |= ImGuiTableFlags_SizingStretchSame;
     return ImGui::BeginTable(
         text.c_str(), columns, imgui_flags,
         ImVec2(outer_width, outer_height)) ? 1 : 0;
@@ -1382,6 +1422,47 @@ void ANOMALY_CALL OverlayText(void*, float x, float y, AnomalyStringViewV1 value
         value.data, value.data + value.size);
 }
 
+
+int ANOMALY_CALL BeginPanelStyle(void*, float scale, const float* colors) {
+    if (!colors || !std::isfinite(scale) || scale < 0.4F || scale > 2.0F) return 0;
+    for (int i=0;i<56;++i) if (!std::isfinite(colors[i]) || colors[i]<0 || colors[i]>1) return 0;
+    constexpr ImGuiCol slots[]={ImGuiCol_WindowBg,ImGuiCol_ChildBg,ImGuiCol_Text,ImGuiCol_TextDisabled,
+        ImGuiCol_Button,ImGuiCol_ButtonHovered,ImGuiCol_ButtonActive,ImGuiCol_FrameBg,ImGuiCol_FrameBgHovered,
+        ImGuiCol_SliderGrab,ImGuiCol_SliderGrabActive,ImGuiCol_Header,ImGuiCol_HeaderHovered,ImGuiCol_PopupBg};
+    for(int i=0;i<14;++i)ImGui::PushStyleColor(slots[i],ImVec4(colors[i*4],colors[i*4+1],colors[i*4+2],colors[i*4+3]));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(24*scale,22*scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(12*scale,8*scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,ImVec2(12*scale,9*scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,18*scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding,12*scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,7*scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding,9*scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize,0.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize,0.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,0.0F);
+    return 1;
+}
+void ANOMALY_CALL EndPanelStyle(void*) {ImGui::PopStyleVar(10);ImGui::PopStyleColor(14);}
+int ANOMALY_CALL BeginCombo(void*,AnomalyStringViewV1 id,AnomalyStringViewV1 preview,int enabled) {
+    ImGui::BeginDisabled(!enabled);
+    const bool open=ImGui::BeginCombo(Copy(id).c_str(),Copy(preview).c_str());
+    ImGui::EndDisabled();return open?1:0;
+}
+int ANOMALY_CALL CheckboxEnabled(void*,AnomalyStringViewV1 label,int* value,int enabled){if(!value)return 0;bool v=*value!=0;ImGui::BeginDisabled(!enabled);const bool changed=ImGui::Checkbox(Copy(label).c_str(),&v);ImGui::EndDisabled();if(changed&&enabled)*value=v?1:0;return changed&&enabled?1:0;}
+void ANOMALY_CALL EndCombo(void*) {ImGui::EndCombo();}
+int ANOMALY_CALL Selectable(void*,AnomalyStringViewV1 label,int selected,float height,int enabled) {
+    return ImGui::Selectable(Copy(label).c_str(),selected!=0,enabled?0:ImGuiSelectableFlags_Disabled,ImVec2(0,height))?1:0;
+}
+void ANOMALY_CALL ContentSize(void*,float* width,float* height) {const auto v=ImGui::GetContentRegionAvail();if(width)*width=v.x;if(height)*height=v.y;}
+void ANOMALY_CALL SetCursorY(void*,float y) {ImGui::SetCursorPosY(y);}
+void ANOMALY_CALL FontScale(void*,float scale) {if(std::isfinite(scale)&&scale>=0.4F&&scale<=3.0F)ImGui::SetWindowFontScale(scale);}
+void ANOMALY_CALL CenterPanel(void*,float width,float height) {
+    const auto* v=ImGui::GetMainViewport();ImGui::SetNextWindowSize(ImVec2(width,height),ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(v->Pos.x+v->Size.x/2,v->Pos.y+v->Size.y/2),ImGuiCond_Always,ImVec2(.5F,.5F));
+}
+void ANOMALY_CALL Dummy(void*,float width,float height) {ImGui::Dummy(ImVec2(width,height));}
+void ANOMALY_CALL MutedText(void*,AnomalyStringViewV1 text) {ImGui::PushStyleColor(ImGuiCol_Text,ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));ImGui::TextUnformatted(text.data,text.data+text.size);ImGui::PopStyleColor();}
+
 int ANOMALY_CALL DrawScreenPrimitives(
     void*, const AnomalyUiScreenPrimitiveV1* primitives, const std::size_t count) {
     constexpr std::size_t kMaximumPrimitives = 1U << 20U;
@@ -1438,7 +1519,8 @@ const AnomalyUiServiceV1 kUiService{
     TextWrapped, BeginChildAutoFitY, SliderFloatEnabled, SetNextItemWidth,
     OverlayViewportSize, OverlayGlass, OverlayRectFilled, OverlayLine, OverlayCircle,
     OverlayRingSector, OverlayMeasureText, OverlayText, OverlayGlassRingSector,
-    DrawScreenPrimitives};
+    DrawScreenPrimitives, BeginPanelStyle, EndPanelStyle, BeginCombo, EndCombo, Selectable,
+    ContentSize, SetCursorY, FontScale, CenterPanel, Dummy, MutedText, CheckboxEnabled};
 
 }  // namespace
 
@@ -1468,7 +1550,7 @@ bool HostUiMenusCaptureMouse() noexcept {
     // when the game hides the cursor it never lands on an ImGui window, so
     // capture stays false, NoMouse is set, ImGui ignores the mouse, and
     // WantCaptureMouse can never become true again.
-    return !g_menus_collapsed.load();
+    return !g_menus_collapsed.load() || g_independent_input.Captured();
 }
 
 void SetHostUiInputCapturePolicy(const PlatformInputCapturePolicy policy) noexcept {
@@ -1507,7 +1589,29 @@ void SetHostUiCurrentWindowLocked(const bool locked) noexcept {
     g_window_locks[window->ID] = locked;
 }
 
+void UpdateHostUiPointer(float x, float y) noexcept {
+    g_independent_input.Pointer(x, y);
+}
+void UpdateHostUiPointerButton(bool down) noexcept {
+    g_independent_input.Button(down);
+}
+void ResetHostUiPointer() noexcept {
+    g_independent_input.ResetPointer();
+}
+bool HostUiHasIndependentWindows() noexcept { return g_independent_input.Any(); }
+bool ConsumeHostUiIndependentFocus(bool foreground, float& x, float& y) noexcept {
+    const auto rect = g_independent_input.ConsumeFocus(foreground);
+    if (!rect) return false;
+    x = (rect->left + rect->right) * 0.5F;
+    y = (rect->top + rect->bottom) * 0.5F;
+    return true;
+}
+void FinishHostUiFrame() noexcept {
+    g_independent_input.EndFrame();
+    if (!g_independent_input.Any()) ResetHostUiPointer();
+}
 void PrepareHostUiFrame() noexcept {
+    g_independent_input.BeginFrame();
     g_apply_menu_state.Set(g_menu_state_pending.exchange(false));
     g_frame_menus_collapsed.Set(g_menus_collapsed.load());
 }
@@ -1523,7 +1627,7 @@ bool UpdateHostUiWindowState() noexcept {
     if (window->TitleBarHeight > 0.0F && DrawWindowLockButton(*window, locked)) locked = !locked;
     if (locked) {
         if (window->Collapsed) ImGui::SetWindowCollapsed(window, false, ImGuiCond_Always);
-    } else if (g_frame_menus_collapsed.Get()) {
+    } else if (g_frame_menus_collapsed.Get() && !g_begin_independent.Get()) {
         if (!window->Collapsed) ImGui::SetWindowCollapsed(window, true, ImGuiCond_Always);
     } else if (g_apply_menu_state.Get() && window->Collapsed) {
         ImGui::SetWindowCollapsed(window, false, ImGuiCond_Always);

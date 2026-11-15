@@ -627,7 +627,8 @@ std::string BuildSnapshot() {
          {"ANOMALY_UI_TABLE_V1_SIZING_FIXED_FIT",
           ANOMALY_UI_TABLE_V1_SIZING_FIXED_FIT},
          {"ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP",
-          ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP}},
+          ANOMALY_UI_TABLE_V1_SIZING_STRETCH_PROP},
+         {"ANOMALY_UI_TABLE_V1_SIZING_STRETCH_SAME",ANOMALY_UI_TABLE_V1_SIZING_STRETCH_SAME}},
         false);
     AppendEnum(
         output,
@@ -694,7 +695,8 @@ std::string BuildSnapshot() {
         alignof(AnomalyWindowFlagsV1),
         {{"ANOMALY_WINDOW_V1_NONE", ANOMALY_WINDOW_V1_NONE},
          {"ANOMALY_WINDOW_V1_NO_SAVED_SETTINGS", ANOMALY_WINDOW_V1_NO_SAVED_SETTINGS},
-         {"ANOMALY_WINDOW_V1_NO_COLLAPSE", ANOMALY_WINDOW_V1_NO_COLLAPSE}},
+         {"ANOMALY_WINDOW_V1_NO_COLLAPSE", ANOMALY_WINDOW_V1_NO_COLLAPSE},
+         {"ANOMALY_WINDOW_V1_CUSTOM_CHROME",ANOMALY_WINDOW_V1_CUSTOM_CHROME}},
         false);
     AppendEnum(
         output,
@@ -1395,7 +1397,19 @@ std::string BuildSnapshot() {
          {"overlay_measure_text", offsetof(AnomalyUiServiceV1, overlay_measure_text)},
          {"overlay_text", offsetof(AnomalyUiServiceV1, overlay_text)},
          {"overlay_glass_ring_sector", offsetof(AnomalyUiServiceV1, overlay_glass_ring_sector)},
-         {"draw_screen_primitives", offsetof(AnomalyUiServiceV1, draw_screen_primitives)}},
+         {"draw_screen_primitives", offsetof(AnomalyUiServiceV1, draw_screen_primitives)},
+         {"begin_panel_style", offsetof(AnomalyUiServiceV1, begin_panel_style)},
+         {"end_panel_style", offsetof(AnomalyUiServiceV1, end_panel_style)},
+         {"begin_combo", offsetof(AnomalyUiServiceV1, begin_combo)},
+         {"end_combo", offsetof(AnomalyUiServiceV1, end_combo)},
+         {"selectable", offsetof(AnomalyUiServiceV1, selectable)},
+         {"content_size", offsetof(AnomalyUiServiceV1, content_size)},
+         {"set_cursor_y", offsetof(AnomalyUiServiceV1, set_cursor_y)},
+         {"font_scale", offsetof(AnomalyUiServiceV1, font_scale)},
+         {"center_panel", offsetof(AnomalyUiServiceV1, center_panel)},
+         {"dummy", offsetof(AnomalyUiServiceV1, dummy)},
+         {"muted_text", offsetof(AnomalyUiServiceV1, muted_text)},
+         {"checkbox_enabled", offsetof(AnomalyUiServiceV1, checkbox_enabled)}},
         false);
     AppendStruct(
         output,
